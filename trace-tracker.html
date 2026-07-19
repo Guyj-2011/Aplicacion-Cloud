@@ -166,7 +166,7 @@
   var map = L.map('map', { zoomControl:false, attributionControl:true }).setView([20, 0], 2.3);
 
   var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri', maxZoom: 20, maxNativeZoom: 18
+    attribution: 'Tiles © Esri', maxZoom: 20, maxNativeZoom: 16
   });
   var fallbackLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19, subdomains: 'abc'
@@ -291,7 +291,7 @@
     hintText.textContent = 'Rastreando tu recorrido…';
 
     navigator.geolocation.getCurrentPosition(function(pos){
-      map.setView([pos.coords.latitude, pos.coords.longitude], 17, { animate:true });
+      map.setView([pos.coords.latitude, pos.coords.longitude], 16, { animate:true });
     }, function(){}, { enableHighAccuracy:true, timeout:8000 });
 
     watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
@@ -378,7 +378,7 @@
       return;
     }
     var bounds = routeLine.getBounds();
-    if(bounds.isValid()) map.fitBounds(bounds, { padding:[60,60], maxZoom:18 });
+    if(bounds.isValid()) map.fitBounds(bounds, { padding:[60,60], maxZoom:16 });
     hintText.textContent = 'Recorrido guardado. Puedes reproducirlo o iniciar uno nuevo.';
     renderStoppedControls();
   }
@@ -436,7 +436,7 @@
     routeLine.setLatLngs([]); glowLine.setLatLngs([]);
     var replayMarker = L.marker([route[0].lat, route[0].lng], { icon: replayMarkerIcon }).addTo(map);
     var bounds = L.latLngBounds(route.map(function(p){ return [p.lat,p.lng]; }));
-    map.fitBounds(bounds, { padding:[80,80], maxZoom:18 });
+    map.fitBounds(bounds, { padding:[80,80], maxZoom:16 });
     var totalT = route[route.length-1].t || 1;
     var duration = REPLAY_BASE_MS / replaySpeed;
     var animStart = performance.now();
@@ -515,6 +515,7 @@
 </script>
 </body>
 </html>
+
 
 
 
