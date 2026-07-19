@@ -3,57 +3,35 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>TRACE — Rastreador de Recorrido</title>
+<title>TRACE — Rastreador Satelital</title>
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230B0F14'/%3E%3Ccircle cx='50' cy='50' r='30' fill='none' stroke='%23D4A054' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='6' fill='%234FD1C5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root{
-    --ink:#0a0e13;
-    --panel-edge:rgba(232,228,218,0.08);
-    --brass:#D4A054;
-    --teal:#4FD1C5;
-    --alert:#E2574C;
-    --paper:#E8E4DA;
-    --muted:#7C8894;
-    --grid:rgba(232,228,218,0.14);
-    --mono: ui-monospace, 'SF Mono', 'Roboto Mono', 'Cascadia Code', Consolas, monospace;
+    --ink:#0a0e13; --panel-edge:rgba(232,228,218,0.08);
+    --brass:#D4A054; --teal:#4FD1C5; --alert:#E2574C; --paper:#E8E4DA; --muted:#7C8894;
+    --mono: ui-monospace, 'SF Mono', 'Roboto Mono', Consolas, monospace;
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{
-    margin:0; padding:0; width:100%; height:100%;
-    background:var(--ink); color:var(--paper);
-    font-family:var(--sans); overflow:hidden;
-    position:fixed; inset:0;
-  }
-  #radar{ position:absolute; inset:0; z-index:1; display:block; }
+  html,body{ margin:0; padding:0; width:100%; height:100%; background:var(--ink); color:var(--paper);
+    font-family:var(--sans); overflow:hidden; position:fixed; inset:0; }
+  #map{ position:absolute; inset:0; z-index:1; filter:saturate(1.08) contrast(1.05); background:#0a0e13; }
+  .leaflet-container{ background:#0a0e13; }
+  .leaflet-control-attribution{ background:rgba(10,14,19,0.6)!important; color:var(--muted)!important; font-size:9px!important; }
+  .leaflet-control-attribution a{ color:var(--muted)!important; }
+  .leaflet-control-zoom{ display:none; }
 
-  .topbar{
-    position:absolute; top:0; left:0; right:0; z-index:20;
+  .topbar{ position:absolute; top:0; left:0; right:0; z-index:20;
     display:flex; align-items:flex-start; justify-content:space-between;
-    padding: max(16px, env(safe-area-inset-top)) 16px 0 16px;
-    pointer-events:none;
-  }
-  .wordmark{
-    display:flex; flex-direction:column; gap:2px;
-    padding:10px 14px; border-radius:14px;
-    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4);
-    border:1px solid var(--panel-edge);
-  }
-  .wordmark .title{
-    font-family:var(--mono); font-weight:700; font-size:15px; letter-spacing:4px;
-    color:var(--paper);
-  }
-  .wordmark .eyebrow{
-    font-size:9px; letter-spacing:2px; color:var(--brass); text-transform:uppercase;
-  }
-  .status-pill{
-    pointer-events:auto;
-    display:flex; align-items:center; gap:7px;
-    padding:9px 13px; border-radius:999px;
-    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4);
-    border:1px solid var(--panel-edge);
-    font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
-  }
+    padding: max(16px, env(safe-area-inset-top)) 16px 0 16px; pointer-events:none; }
+  .wordmark{ display:flex; flex-direction:column; gap:2px; padding:10px 14px; border-radius:14px;
+    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4); border:1px solid var(--panel-edge); }
+  .wordmark .title{ font-family:var(--mono); font-weight:700; font-size:15px; letter-spacing:4px; color:var(--paper); }
+  .wordmark .eyebrow{ font-size:9px; letter-spacing:2px; color:var(--brass); text-transform:uppercase; }
+  .status-pill{ pointer-events:auto; display:flex; align-items:center; gap:7px; padding:9px 13px; border-radius:999px;
+    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4); border:1px solid var(--panel-edge);
+    font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; }
   .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--muted); }
   .status-pill.live .status-dot{ background:var(--teal); box-shadow:0 0 8px var(--teal); animation:pulse 1.4s ease-in-out infinite; }
   .status-pill.live{ color:var(--teal); border-color:rgba(79,209,197,0.35); }
@@ -61,80 +39,52 @@
   .status-pill.replay{ color:var(--brass); border-color:rgba(212,160,84,0.35); }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
 
-  .coords{
-    position:absolute; top:78px; left:16px; z-index:20;
-    padding:7px 12px; border-radius:10px;
-    background:rgba(10,14,19,0.5); backdrop-filter:blur(10px);
-    border:1px solid var(--panel-edge);
-    font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:0.5px;
-    opacity:0.5; transition:opacity 0.3s;
-  }
+  .coords{ position:absolute; top:78px; left:16px; z-index:20; padding:7px 12px; border-radius:10px;
+    background:rgba(10,14,19,0.5); backdrop-filter:blur(10px); border:1px solid var(--panel-edge);
+    font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:0.5px; opacity:0.5; transition:opacity 0.3s; }
 
-  .error-banner{
-    position:absolute; top:132px; left:16px; right:16px; z-index:25;
-    padding:12px 14px; border-radius:12px;
-    background:rgba(226,87,76,0.15); backdrop-filter:blur(14px);
-    border:1px solid rgba(226,87,76,0.4); color:#ffd9d5;
-    font-size:12.5px; line-height:1.5;
-    display:none;
-  }
+  .error-banner{ position:absolute; top:132px; left:16px; right:16px; z-index:25; padding:12px 14px; border-radius:12px;
+    background:rgba(226,87,76,0.15); backdrop-filter:blur(14px); border:1px solid rgba(226,87,76,0.4);
+    color:#ffd9d5; font-size:12.5px; line-height:1.5; display:none; }
   .error-banner.show{ display:block; }
   .error-banner b{ color:var(--alert); }
 
-  .letterbox{
-    position:absolute; left:0; right:0; height:0; background:#000; z-index:15;
-    transition:height 0.5s ease; pointer-events:none;
-  }
+  .map-notice{ position:absolute; top:132px; left:16px; right:16px; z-index:24; padding:12px 14px; border-radius:12px;
+    background:rgba(212,160,84,0.15); backdrop-filter:blur(14px); border:1px solid rgba(212,160,84,0.4);
+    color:#ffe9c9; font-size:12px; line-height:1.5; display:none; }
+  .map-notice.show{ display:block; }
+
+  .letterbox{ position:absolute; left:0; right:0; height:0; background:#000; z-index:15; transition:height 0.5s ease; pointer-events:none; }
   .letterbox.top{ top:0; } .letterbox.bottom{ bottom:0; }
   .replay-active .letterbox{ height:38px; }
   .replay-active .letterbox.top{ height:calc(38px + env(safe-area-inset-top)); }
 
-  .hud{
-    position:absolute; left:0; right:0; bottom:0; z-index:20;
-    padding: 14px 14px max(16px, env(safe-area-inset-bottom)) 14px;
-  }
-  .hud-card{
-    background:linear-gradient(180deg, rgba(18,24,32,0.75), rgba(10,14,19,0.9));
-    backdrop-filter:blur(20px) saturate(1.3);
-    border:1px solid var(--panel-edge);
-    border-radius:22px;
-    padding:16px 16px 14px 16px;
-    box-shadow:0 -8px 30px rgba(0,0,0,0.4);
-  }
+  .hud{ position:absolute; left:0; right:0; bottom:0; z-index:20; padding: 14px 14px max(16px, env(safe-area-inset-bottom)) 14px; }
+  .hud-card{ background:linear-gradient(180deg, rgba(18,24,32,0.75), rgba(10,14,19,0.9));
+    backdrop-filter:blur(20px) saturate(1.3); border:1px solid var(--panel-edge); border-radius:22px;
+    padding:16px 16px 14px 16px; box-shadow:0 -8px 30px rgba(0,0,0,0.4); }
   .stats-row{ display:flex; justify-content:space-around; margin-bottom:14px; }
   .stat{ text-align:center; flex:1; }
-  .stat .val{
-    font-family:var(--mono); font-weight:700; font-size:22px; letter-spacing:-0.5px;
-    color:var(--paper); font-variant-numeric:tabular-nums;
-  }
+  .stat .val{ font-family:var(--mono); font-weight:700; font-size:22px; letter-spacing:-0.5px; color:var(--paper); font-variant-numeric:tabular-nums; }
   .stat.primary .val{ color:var(--brass); font-size:26px; }
   .stat .lbl{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-top:3px; }
   .divider-v{ width:1px; background:var(--panel-edge); margin:2px 4px; }
 
-  .replay-progress{
-    height:3px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; margin-bottom:14px; display:none;
-  }
+  .replay-progress{ height:3px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; margin-bottom:14px; display:none; }
   .replay-progress.show{ display:block; }
   .replay-progress-fill{ height:100%; width:0%; background:var(--brass); transition:width 0.1s linear; }
 
   .controls-row{ display:flex; align-items:center; justify-content:center; gap:14px; }
-  .btn-record{
-    width:64px; height:64px; border-radius:50%; border:3px solid var(--brass);
-    background:rgba(212,160,84,0.12); display:flex; align-items:center; justify-content:center;
-    cursor:pointer; transition:all 0.2s; flex-shrink:0;
-  }
+  .btn-record{ width:64px; height:64px; border-radius:50%; border:3px solid var(--brass);
+    background:rgba(212,160,84,0.12); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.2s; flex-shrink:0; }
   .btn-record:active{ transform:scale(0.94); }
   .btn-record .inner{ width:26px; height:26px; border-radius:50%; background:var(--brass); transition:all 0.25s; }
   .btn-record.recording{ border-color:var(--alert); background:rgba(226,87,76,0.14); }
   .btn-record.recording .inner{ width:22px; height:22px; border-radius:6px; background:var(--alert); }
 
-  .btn-sec{
-    font-family:var(--sans); font-size:12px; font-weight:600; letter-spacing:0.5px;
-    padding:14px 18px; border-radius:16px; border:1px solid var(--panel-edge);
-    background:rgba(255,255,255,0.04); color:var(--paper);
-    cursor:pointer; transition:all 0.2s; white-space:nowrap;
-    display:flex; align-items:center; gap:6px;
-  }
+  .btn-sec{ font-family:var(--sans); font-size:12px; font-weight:600; letter-spacing:0.5px; padding:14px 18px; border-radius:16px;
+    border:1px solid var(--panel-edge); background:rgba(255,255,255,0.04); color:var(--paper); cursor:pointer; transition:all 0.2s;
+    white-space:nowrap; display:flex; align-items:center; gap:6px; }
   .btn-sec:active{ transform:scale(0.96); background:rgba(255,255,255,0.09); }
   .btn-sec.accent{ color:var(--teal); border-color:rgba(79,209,197,0.3); }
   .btn-sec.ghost{ color:var(--muted); }
@@ -142,10 +92,8 @@
   .hint{ text-align:center; font-size:11px; color:var(--muted); margin-top:12px; letter-spacing:0.3px; }
 
   .speed-toggle{ display:flex; gap:6px; justify-content:center; margin-top:10px; }
-  .speed-btn{
-    font-family:var(--mono); font-size:10.5px; padding:5px 11px; border-radius:8px;
-    border:1px solid var(--panel-edge); background:transparent; color:var(--muted); cursor:pointer;
-  }
+  .speed-btn{ font-family:var(--mono); font-size:10.5px; padding:5px 11px; border-radius:8px; border:1px solid var(--panel-edge);
+    background:transparent; color:var(--muted); cursor:pointer; }
   .speed-btn.active{ color:var(--brass); border-color:var(--brass); background:rgba(212,160,84,0.1); }
 
   .hidden{ display:none !important; }
@@ -153,14 +101,14 @@
 </head>
 <body>
 
-<canvas id="radar"></canvas>
+<div id="map"></div>
 <div class="letterbox top"></div>
 <div class="letterbox bottom"></div>
 
 <div class="topbar">
   <div class="wordmark">
     <div class="title">TRACE</div>
-    <div class="eyebrow">Radar de recorrido</div>
+    <div class="eyebrow">Rastreo satelital</div>
   </div>
   <div class="status-pill" id="statusPill">
     <div class="status-dot"></div>
@@ -170,6 +118,7 @@
 
 <div class="coords" id="coordsReadout">— · —</div>
 <div class="error-banner" id="errorBanner"></div>
+<div class="map-notice" id="mapNotice"></div>
 
 <div class="hud">
   <div class="hud-card">
@@ -208,43 +157,68 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (function(){
   'use strict';
 
-  // ---------------- Canvas setup ----------------
-  var canvas = document.getElementById('radar');
-  var ctx = canvas.getContext('2d');
-  var dpr = Math.max(1, window.devicePixelRatio || 1);
+  // ---------------- Map setup ----------------
+  var map = L.map('map', { zoomControl:false, attributionControl:true }).setView([20, 0], 2.3);
 
-  function resizeCanvas(){
-    canvas.width = window.innerWidth * dpr;
-    canvas.height = window.innerHeight * dpr;
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+  var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri', maxZoom: 20
+  });
+  var fallbackLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19, subdomains: 'abc'
+  });
+  satLayer.addTo(map);
+  var fallbackActive = false, tileErrorCount = 0;
+  satLayer.on('tileerror', function(){
+    tileErrorCount++;
+    if(tileErrorCount >= 4 && !fallbackActive){
+      fallbackActive = true;
+      map.removeLayer(satLayer);
+      fallbackLayer.addTo(map);
+      showMapNotice('No se pudieron cargar las imágenes satelitales, así que se muestra un mapa estándar en su lugar.');
+    }
+  });
+  satLayer.on('tileload', function(){ tileErrorCount = Math.max(0, tileErrorCount-1); });
+  function showMapNotice(msg){
+    var el = document.getElementById('mapNotice');
+    if(el){ el.textContent = msg; el.classList.add('show'); }
   }
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
-  window.addEventListener('orientationchange', function(){ setTimeout(resizeCanvas, 300); });
+  setTimeout(function(){ map.invalidateSize(); }, 300);
+  setTimeout(function(){ map.invalidateSize(); }, 1200);
+  window.addEventListener('resize', function(){ map.invalidateSize(); });
+  window.addEventListener('orientationchange', function(){ setTimeout(function(){ map.invalidateSize(); }, 300); });
+
+  var routeLine = L.polyline([], { color:'#4FD1C5', weight:4, opacity:0.9, lineCap:'round', lineJoin:'round' }).addTo(map);
+  var glowLine = L.polyline([], { color:'#4FD1C5', weight:10, opacity:0.18, lineCap:'round', lineJoin:'round' }).addTo(map);
+
+  var liveMarkerIcon = L.divIcon({
+    className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#4FD1C5;border:3px solid #0a0e13;box-shadow:0 0 12px #4FD1C5;"></div>',
+    iconSize:[16,16], iconAnchor:[8,8]
+  });
+  var replayMarkerIcon = L.divIcon({
+    className:'', html:'<div style="width:18px;height:18px;border-radius:50%;background:#D4A054;border:3px solid #0a0e13;box-shadow:0 0 14px #D4A054;"></div>',
+    iconSize:[18,18], iconAnchor:[9,9]
+  });
+  var liveMarker = null;
 
   // ---------------- State ----------------
-  var STATE = 'idle'; // idle | recording | stopped | replaying
+  var STATE = 'idle';
   var watchId = null;
-  var route = [];         // {lat,lng,t}
-  var liveRaw = null;     // {lat,lng} latest raw fix, for smooth marker even pre-filter
+  var route = [];
   var startTime = null;
   var totalDistance = 0;
-  var cumulativeDist = [0];
   var timerInterval = null;
   var replaySpeed = 2;
-  var replayInfo = null;  // {startTs, duration, totalT, fixedProj}
-  var fixedProj = null;   // cached projection for stopped/replay view
+  var replayAnimId = null;
+  var cumulativeDist = [0];
 
   var MIN_POINT_DIST = 3;
   var REPLAY_BASE_MS = 20000;
 
-  // ---------------- DOM refs ----------------
   var btnRecord = document.getElementById('btnRecord');
   var controlsRow = document.getElementById('controlsRow');
   var statDistance = document.getElementById('statDistance');
@@ -260,7 +234,6 @@
   var replayProgressFill = document.getElementById('replayProgressFill');
   var bodyEl = document.body;
 
-  // ---------------- Geo helpers ----------------
   function haversine(a, b){
     var R = 6371000;
     var dLat = (b.lat-a.lat) * Math.PI/180;
@@ -269,22 +242,7 @@
     var h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
     return 2 * R * Math.asin(Math.sqrt(h));
   }
-
-  // Local flat-earth projection (meters) relative to an origin lat/lng.
-  // Accurate for the short distances involved in a walk/run.
-  function project(lat, lng, originLat, originLng){
-    var mPerDegLat = 110540;
-    var mPerDegLng = 111320 * Math.cos(originLat * Math.PI/180);
-    return {
-      x: (lng - originLng) * mPerDegLng,
-      y: (lat - originLat) * mPerDegLat // positive = north
-    };
-  }
-
-  function fmtDistance(m){
-    if(m < 1000) return Math.round(m) + ' m';
-    return (m/1000).toFixed(2) + ' km';
-  }
+  function fmtDistance(m){ if(m < 1000) return Math.round(m) + ' m'; return (m/1000).toFixed(2) + ' km'; }
   function fmtTime(ms){
     var s = Math.floor(ms/1000);
     var h = Math.floor(s/3600), mm = Math.floor((s%3600)/60), ss = s%60;
@@ -314,249 +272,23 @@
     else { statusText.textContent='Inactivo'; }
   }
 
-  function pickRingStep(maxRadius){
-    var candidates = [2,5,10,20,25,50,100,200,250,500,1000,2000,5000,10000,20000];
-    var target = maxRadius / 4;
-    var best = candidates[0], bestDiff = Infinity;
-    for(var i=0;i<candidates.length;i++){
-      var diff = Math.abs(candidates[i]-target);
-      if(diff < bestDiff){ bestDiff = diff; best = candidates[i]; }
-    }
-    return best;
-  }
-
-  // ---------------- Drawing ----------------
-  var lastFrameTime = 0;
-
-  function drawBackground(w,h){
-    ctx.fillStyle = '#0a0e13';
-    ctx.fillRect(0,0,w,h);
-    // subtle vignette
-    var grad = ctx.createRadialGradient(w/2,h*0.4,10, w/2,h*0.4, Math.max(w,h)*0.8);
-    grad.addColorStop(0, 'rgba(20,28,36,0.4)');
-    grad.addColorStop(1, 'rgba(6,9,12,0.95)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0,0,w,h);
-  }
-
-  function drawGrid(cx, cy, maxCanvasRadius, maxRadiusMeters, pxPerMeter, sweepAngle){
-    var step = pickRingStep(maxRadiusMeters);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(232,228,218,0.10)';
-    ctx.lineWidth = 1;
-    ctx.font = '9px ' + getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
-
-    // rings
-    for(var r = step; r <= maxRadiusMeters + step*0.5; r += step){
-      var pr = r * pxPerMeter;
-      if(pr > maxCanvasRadius * 1.05) break;
-      ctx.beginPath();
-      ctx.arc(cx, cy, pr, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(124,136,148,0.85)';
-      var label = r >= 1000 ? (r/1000)+' km' : r+' m';
-      ctx.fillText(label, cx + 4, cy - pr + 11);
-    }
-
-    // radial lines + compass
-    var dirs = [{a:-Math.PI/2,l:'N'},{a:0,l:'E'},{a:Math.PI/2,l:'S'},{a:Math.PI,l:'O'}];
-    ctx.strokeStyle = 'rgba(232,228,218,0.07)';
-    dirs.forEach(function(d){
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(d.a)*maxCanvasRadius, cy + Math.sin(d.a)*maxCanvasRadius);
-      ctx.stroke();
-    });
-    ctx.font = '600 11px ' + 'ui-monospace, monospace';
-    dirs.forEach(function(d){
-      var lx = cx + Math.cos(d.a)*(maxCanvasRadius+14);
-      var ly = cy + Math.sin(d.a)*(maxCanvasRadius+14);
-      ctx.fillStyle = d.l==='N' ? 'rgba(212,160,84,0.9)' : 'rgba(124,136,148,0.7)';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(d.l, lx, ly);
-    });
-    ctx.restore();
-
-    // idle sweep
-    if(sweepAngle !== null){
-      ctx.save();
-      var sweepGrad = ctx.createConicGradient ? ctx.createConicGradient(sweepAngle - Math.PI/2, cx, cy) : null;
-      ctx.beginPath();
-      ctx.moveTo(cx,cy);
-      ctx.arc(cx, cy, maxCanvasRadius, sweepAngle - 0.5, sweepAngle);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(79,209,197,0.06)';
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(cx,cy);
-      ctx.lineTo(cx + Math.cos(sweepAngle)*maxCanvasRadius, cy + Math.sin(sweepAngle)*maxCanvasRadius);
-      ctx.strokeStyle = 'rgba(79,209,197,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
-    }
-  }
-
-  function drawPath(points, cx, cy, pxPerMeter, origin, color, upTo){
-    if(points.length < 2) return;
-    var n = upTo === undefined ? points.length : upTo;
-    if(n < 2) return;
-    ctx.save();
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    // glow pass
-    ctx.shadowColor = color; ctx.shadowBlur = 12;
-    ctx.strokeStyle = color; ctx.globalAlpha = 0.35; ctx.lineWidth = 9;
-    tracePath(points, n, cx, cy, pxPerMeter, origin);
-    ctx.stroke();
-    // core pass
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineWidth = 3.5;
-    tracePath(points, n, cx, cy, pxPerMeter, origin);
-    ctx.stroke();
-    ctx.restore();
-  }
-  function tracePath(points, n, cx, cy, pxPerMeter, origin){
-    ctx.beginPath();
-    for(var i=0;i<n;i++){
-      var p = project(points[i].lat, points[i].lng, origin.lat, origin.lng);
-      var x = cx + p.x*pxPerMeter, y = cy - p.y*pxPerMeter;
-      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-    }
-  }
-
-  function drawMarker(lat, lng, cx, cy, pxPerMeter, origin, color, pulseT){
-    var p = project(lat, lng, origin.lat, origin.lng);
-    var x = cx + p.x*pxPerMeter, y = cy - p.y*pxPerMeter;
-    ctx.save();
-    var pulse = 1 + Math.sin(pulseT/450) * 0.35;
-    ctx.beginPath();
-    ctx.arc(x, y, 16*Math.max(pulse,0.4), 0, Math.PI*2);
-    ctx.fillStyle = color.replace('COLOR_ALPHA', (0.18).toString());
-    ctx.globalAlpha = 0.22;
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI*2);
-    ctx.fillStyle = '#0a0e13';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, 5.5, 0, Math.PI*2);
-    ctx.fillStyle = color;
-    ctx.shadowColor = color; ctx.shadowBlur = 10;
-    ctx.fill();
-    ctx.restore();
-    return {x:x,y:y};
-  }
-
-  function computeBoundsOrigin(points){
-    if(points.length === 0) return {lat:0,lng:0};
-    var latSum=0,lngSum=0;
-    points.forEach(function(p){ latSum+=p.lat; lngSum+=p.lng; });
-    return { lat: latSum/points.length, lng: lngSum/points.length };
-  }
-  function computeMaxRadius(points, origin){
-    var max = 15; // minimum meters shown so it never over-zooms when stationary
-    points.forEach(function(p){
-      var pr = project(p.lat,p.lng,origin.lat,origin.lng);
-      var d = Math.sqrt(pr.x*pr.x + pr.y*pr.y);
-      if(d > max) max = d;
-    });
-    return max * 1.25;
-  }
-
-  function render(now){
-    var w = window.innerWidth, h = window.innerHeight;
-    drawBackground(w,h);
-
-    var cx = w/2, cy = h*0.42;
-    var maxCanvasRadius = Math.min(w,h) * 0.36;
-
-    if(STATE === 'idle' && route.length === 0){
-      var sweep = (now/1800) % (Math.PI*2);
-      drawGrid(cx, cy, maxCanvasRadius, 50, maxCanvasRadius/50, sweep);
-      // center placeholder ring
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx,cy,4,0,Math.PI*2);
-      ctx.fillStyle = 'rgba(212,160,84,0.6)';
-      ctx.fill();
-      ctx.restore();
-    }
-    else if(STATE === 'recording'){
-      var pts = liveRaw ? route.concat([{lat:liveRaw.lat, lng:liveRaw.lng}]) : route;
-      var origin = computeBoundsOrigin(pts.length ? pts : [liveRaw || {lat:0,lng:0}]);
-      var maxR = computeMaxRadius(pts, origin);
-      var pxPerM = maxCanvasRadius / maxR;
-      drawGrid(cx, cy, maxCanvasRadius, maxR, pxPerM, null);
-      drawPath(route, cx, cy, pxPerM, origin, '#4FD1C5');
-      var pos = liveRaw || (route.length ? route[route.length-1] : null);
-      if(pos) drawMarker(pos.lat, pos.lng, cx, cy, pxPerM, origin, '#4FD1C5', now);
-    }
-    else if(STATE === 'stopped' && route.length >= 2){
-      if(!fixedProj){
-        var o = computeBoundsOrigin(route);
-        var mr = computeMaxRadius(route, o);
-        fixedProj = { origin:o, maxR:mr };
-      }
-      var pxPerM2 = maxCanvasRadius / fixedProj.maxR;
-      drawGrid(cx, cy, maxCanvasRadius, fixedProj.maxR, pxPerM2, null);
-      drawPath(route, cx, cy, pxPerM2, fixedProj.origin, '#4FD1C5');
-      var last = route[route.length-1];
-      drawMarker(last.lat, last.lng, cx, cy, pxPerM2, fixedProj.origin, '#4FD1C5', now);
-    }
-    else if(STATE === 'replaying' && replayInfo){
-      var fp = replayInfo.fixedProj;
-      var pxPerM3 = maxCanvasRadius / fp.maxR;
-      var elapsed = now - replayInfo.startTs;
-      var progress = Math.min(elapsed / replayInfo.duration, 1);
-      var targetT = progress * replayInfo.totalT;
-
-      var idx = 0;
-      while(idx < route.length-1 && route[idx+1].t < targetT) idx++;
-      var p0 = route[idx], p1 = route[Math.min(idx+1, route.length-1)];
-      var segT = p1.t - p0.t;
-      var localP = segT > 0 ? (targetT - p0.t) / segT : 0;
-      var lat = p0.lat + (p1.lat - p0.lat) * localP;
-      var lng = p0.lng + (p1.lng - p0.lng) * localP;
-      var dist = cumulativeDist[idx] + (cumulativeDist[Math.min(idx+1,cumulativeDist.length-1)] - cumulativeDist[idx]) * localP;
-
-      drawGrid(cx, cy, maxCanvasRadius, fp.maxR, pxPerM3, null);
-      drawPath(route, cx, cy, pxPerM3, fp.origin, 'rgba(79,209,197,0.4)');
-      var upToIdx = idx+2;
-      ctx.save();
-      drawPath(route.slice(0, Math.min(upToIdx, route.length)).concat([{lat:lat,lng:lng}]), cx, cy, pxPerM3, fp.origin, '#D4A054');
-      ctx.restore();
-      drawMarker(lat, lng, cx, cy, pxPerM3, fp.origin, '#D4A054', now);
-
-      statDistance.textContent = fmtDistance(dist);
-      statTime.textContent = fmtTime(targetT);
-      statPace.textContent = fmtPace(dist, targetT);
-      replayProgressFill.style.width = (progress*100)+'%';
-
-      if(progress >= 1){ finishReplay(); }
-    }
-    else {
-      drawGrid(cx, cy, maxCanvasRadius, 50, maxCanvasRadius/50, null);
-    }
-
-    requestAnimationFrame(render);
-  }
-  requestAnimationFrame(render);
-
-  // ---------------- Recording logic ----------------
   function startRecording(){
     if(!navigator.geolocation){
       showError('<b>Sin soporte de geolocalización.</b> Tu navegador no permite acceder al GPS.');
       return;
     }
     clearError();
-    route = []; cumulativeDist = [0]; totalDistance = 0; liveRaw = null; fixedProj = null;
-    startTime = Date.now();
+    route = []; cumulativeDist = [0]; totalDistance = 0; startTime = Date.now();
+    routeLine.setLatLngs([]); glowLine.setLatLngs([]);
 
     STATE = 'recording';
     btnRecord.classList.add('recording');
     setStatus('live');
     hintText.textContent = 'Rastreando tu recorrido…';
+
+    navigator.geolocation.getCurrentPosition(function(pos){
+      map.setView([pos.coords.latitude, pos.coords.longitude], 17, { animate:true });
+    }, function(){}, { enableHighAccuracy:true, timeout:8000 });
 
     watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
       enableHighAccuracy:true, maximumAge:1000, timeout:15000
@@ -566,9 +298,11 @@
 
   function onPosition(pos){
     var lat = pos.coords.latitude, lng = pos.coords.longitude;
-    liveRaw = { lat:lat, lng:lng };
     coordsReadout.textContent = fmtCoord(lat, lng);
     coordsReadout.style.opacity = '1';
+
+    if(!liveMarker){ liveMarker = L.marker([lat,lng], { icon: liveMarkerIcon }).addTo(map); }
+    else { liveMarker.setLatLng([lat,lng]); }
 
     var point = { lat:lat, lng:lng, t: Date.now() - startTime };
     if(route.length === 0){
@@ -580,15 +314,18 @@
         totalDistance += d;
         route.push(point);
         cumulativeDist.push(totalDistance);
+        routeLine.addLatLng([lat,lng]);
+        glowLine.addLatLng([lat,lng]);
       }
     }
+    map.panTo([lat,lng], { animate:true, duration:0.6 });
     statDistance.textContent = fmtDistance(totalDistance);
     statPace.textContent = fmtPace(totalDistance, Date.now()-startTime);
   }
 
   function onGeoError(err){
     var msg = 'No se pudo acceder a tu ubicación.';
-    if(err.code === 1) msg = '<b>Permiso denegado.</b> Activa la ubicación para este sitio en los ajustes de tu navegador para poder rastrear tu recorrido.';
+    if(err.code === 1) msg = '<b>Permiso denegado.</b> Activa la ubicación para este sitio en los ajustes de tu navegador.';
     else if(err.code === 2) msg = '<b>Ubicación no disponible.</b> Verifica tu señal GPS o conexión.';
     else if(err.code === 3) msg = '<b>Tiempo de espera agotado</b> buscando tu ubicación. Intenta de nuevo.';
     showError(msg);
@@ -613,11 +350,12 @@
       renderIdleControls();
       return;
     }
+    var bounds = routeLine.getBounds();
+    if(bounds.isValid()) map.fitBounds(bounds, { padding:[60,60] });
     hintText.textContent = 'Recorrido guardado. Puedes reproducirlo o iniciar uno nuevo.';
     renderStoppedControls();
   }
 
-  // ---------------- Controls ----------------
   function renderIdleControls(){
     controlsRow.innerHTML = '';
     controlsRow.appendChild(btnRecord);
@@ -650,7 +388,9 @@
   }
 
   function resetAll(){
-    route = []; cumulativeDist = [0]; totalDistance = 0; liveRaw = null; fixedProj = null;
+    route = []; cumulativeDist = [0]; totalDistance = 0;
+    routeLine.setLatLngs([]); glowLine.setLatLngs([]);
+    if(liveMarker){ map.removeLayer(liveMarker); liveMarker = null; }
     statDistance.textContent = '0 m'; statTime.textContent = '00:00'; statPace.textContent = '--:--';
     coordsReadout.style.opacity = '0.5';
     STATE = 'idle'; setStatus('idle');
@@ -658,50 +398,78 @@
     renderIdleControls();
   }
 
-  // ---------------- Replay ----------------
   function startReplay(){
     if(route.length < 2) return;
-    var o = computeBoundsOrigin(route);
-    var mr = computeMaxRadius(route, o);
-    replayInfo = {
-      startTs: performance.now(),
-      duration: REPLAY_BASE_MS / replaySpeed,
-      totalT: route[route.length-1].t || 1,
-      fixedProj: { origin:o, maxR:mr }
-    };
-    STATE = 'replaying';
-    setStatus('replay');
+    STATE = 'replaying'; setStatus('replay');
     bodyEl.classList.add('replay-active');
     renderReplayingControls();
     replayProgress.classList.add('show');
+    if(liveMarker){ map.removeLayer(liveMarker); liveMarker = null; }
+    routeLine.setLatLngs([]); glowLine.setLatLngs([]);
+    var replayMarker = L.marker([route[0].lat, route[0].lng], { icon: replayMarkerIcon }).addTo(map);
+    var bounds = L.latLngBounds(route.map(function(p){ return [p.lat,p.lng]; }));
+    map.fitBounds(bounds, { padding:[80,80] });
+    var totalT = route[route.length-1].t || 1;
+    var duration = REPLAY_BASE_MS / replaySpeed;
+    var animStart = performance.now();
+
+    function frame(now){
+      if(STATE !== 'replaying') return;
+      var elapsed = now - animStart;
+      var progress = Math.min(elapsed / duration, 1);
+      var targetT = progress * totalT;
+      var idx = 0;
+      while(idx < route.length-1 && route[idx+1].t < targetT) idx++;
+      var p0 = route[idx], p1 = route[Math.min(idx+1, route.length-1)];
+      var segT = p1.t - p0.t;
+      var localP = segT > 0 ? (targetT - p0.t) / segT : 0;
+      var lat = p0.lat + (p1.lat - p0.lat) * localP;
+      var lng = p0.lng + (p1.lng - p0.lng) * localP;
+      var dist = cumulativeDist[idx] + (cumulativeDist[Math.min(idx+1,cumulativeDist.length-1)] - cumulativeDist[idx]) * localP;
+
+      replayMarker.setLatLng([lat,lng]);
+      routeLine.addLatLng([lat,lng]);
+      glowLine.addLatLng([lat,lng]);
+      map.panTo([lat,lng], { animate:false });
+
+      statDistance.textContent = fmtDistance(dist);
+      statTime.textContent = fmtTime(targetT);
+      statPace.textContent = fmtPace(dist, targetT);
+      replayProgressFill.style.width = (progress*100)+'%';
+
+      if(progress < 1){ replayAnimId = requestAnimationFrame(frame); }
+      else { finishReplay(replayMarker); }
+    }
+    replayAnimId = requestAnimationFrame(frame);
   }
-  function finishReplay(){
-    STATE = 'stopped';
-    setStatus('idle');
+
+  function finishReplay(marker){
+    STATE = 'stopped'; setStatus('idle');
     bodyEl.classList.remove('replay-active');
     hintText.textContent = 'Reproducción finalizada. Puedes verla de nuevo o iniciar un recorrido nuevo.';
-    fixedProj = replayInfo ? replayInfo.fixedProj : fixedProj;
+    if(marker) map.removeLayer(marker);
+    routeLine.setLatLngs(route.map(function(p){return [p.lat,p.lng];}));
+    glowLine.setLatLngs(route.map(function(p){return [p.lat,p.lng];}));
     statDistance.textContent = fmtDistance(totalDistance);
     statTime.textContent = fmtTime(route[route.length-1].t);
     statPace.textContent = fmtPace(totalDistance, route[route.length-1].t);
-    replayInfo = null;
     renderStoppedControls();
   }
+
   function stopReplay(){
-    STATE = 'stopped';
-    setStatus('idle');
+    if(replayAnimId) cancelAnimationFrame(replayAnimId);
+    STATE = 'stopped'; setStatus('idle');
     bodyEl.classList.remove('replay-active');
     replayProgress.classList.remove('show');
-    fixedProj = replayInfo ? replayInfo.fixedProj : fixedProj;
+    routeLine.setLatLngs(route.map(function(p){return [p.lat,p.lng];}));
+    glowLine.setLatLngs(route.map(function(p){return [p.lat,p.lng];}));
     statDistance.textContent = fmtDistance(totalDistance);
     statTime.textContent = fmtTime(route[route.length-1].t);
     statPace.textContent = fmtPace(totalDistance, route[route.length-1].t);
     hintText.textContent = 'Reproducción detenida. Puedes verla de nuevo o iniciar un recorrido nuevo.';
-    replayInfo = null;
     renderStoppedControls();
   }
 
-  // ---------------- Wiring ----------------
   btnRecord.addEventListener('click', function(){
     if(STATE === 'idle' || STATE === 'stopped'){ startRecording(); }
     else if(STATE === 'recording'){ stopRecording(); }
@@ -719,3 +487,4 @@
 </script>
 </body>
 </html>
+
