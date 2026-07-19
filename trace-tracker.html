@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>TRACE — Rastreador de Recorrido</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230B0F14'/%3E%3Ccircle cx='50' cy='50' r='30' fill='none' stroke='%23D4A054' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='6' fill='%234FD1C5'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --ink:#0a0e13;
+    --panel-edge:rgba(232,228,218,0.08);
+    --brass:#D4A054;
+    --teal:#4FD1C5;
+    --alert:#E2574C;
+    --paper:#E8E4DA;
+    --muted:#7C8894;
+    --grid:rgba(232,228,218,0.14);
+    --mono: ui-monospace, 'SF Mono', 'Roboto Mono', 'Cascadia Code', Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:var(--ink); color:var(--paper);
+    font-family:var(--sans); overflow:hidden;
+    position:fixed; inset:0;
+  }
+  #radar{ position:absolute; inset:0; z-index:1; display:block; }
+
+  .topbar{
+    position:absolute; top:0; left:0; right:0; z-index:20;
+    display:flex; align-items:flex-start; justify-content:space-between;
+    padding: max(16px, env(safe-area-inset-top)) 16px 0 16px;
+    pointer-events:none;
+  }
+  .wordmark{
+    display:flex; flex-direction:column; gap:2px;
+    padding:10px 14px; border-radius:14px;
+    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4);
+    border:1px solid var(--panel-edge);
+  }
+  .wordmark .title{
+    font-family:var(--mono); font-weight:700; font-size:15px; letter-spacing:4px;
+    color:var(--paper);
+  }
+  .wordmark .eyebrow{
+    font-size:9px; letter-spacing:2px; color:var(--brass); text-transform:uppercase;
+  }
+  .status-pill{
+    pointer-events:auto;
+    display:flex; align-items:center; gap:7px;
+    padding:9px 13px; border-radius:999px;
+    background:rgba(10,14,19,0.55); backdrop-filter:blur(14px) saturate(1.4);
+    border:1px solid var(--panel-edge);
+    font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase;
+  }
+  .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--muted); }
+  .status-pill.live .status-dot{ background:var(--teal); box-shadow:0 0 8px var(--teal); animation:pulse 1.4s ease-in-out infinite; }
+  .status-pill.live{ color:var(--teal); border-color:rgba(79,209,197,0.35); }
+  .status-pill.replay .status-dot{ background:var(--brass); box-shadow:0 0 8px var(--brass); animation:pulse 1.4s ease-in-out infinite; }
+  .status-pill.replay{ color:var(--brass); border-color:rgba(212,160,84,0.35); }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+  .coords{
+    position:absolute; top:78px; left:16px; z-index:20;
+    padding:7px 12px; border-radius:10px;
+    background:rgba(10,14,19,0.5); backdrop-filter:blur(10px);
+    border:1px solid var(--panel-edge);
+    font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:0.5px;
+    opacity:0.5; transition:opacity 0.3s;
+  }
+
+  .error-banner{
+    position:absolute; top:132px; left:16px; right:16px; z-index:25;
+    padding:12px 14px; border-radius:12px;
+    background:rgba(226,87,76,0.15); backdrop-filter:blur(14px);
+    border:1px solid rgba(226,87,76,0.4); color:#ffd9d5;
+    font-size:12.5px; line-height:1.5;
+    display:none;
+  }
+  .error-banner.show{ display:block; }
+  .error-banner b{ color:var(--alert); }
+
+  .letterbox{
+    position:absolute; left:0; right:0; height:0; background:#000; z-index:15;
+    transition:height 0.5s ease; pointer-events:none;
+  }
+  .letterbox.top{ top:0; } .letterbox.bottom{ bottom:0; }
+  .replay-active .letterbox{ height:38px; }
+  .replay-active .letterbox.top{ height:calc(38px + env(safe-area-inset-top)); }
+
+  .hud{
+    position:absolute; left:0; right:0; bottom:0; z-index:20;
+    padding: 14px 14px max(16px, env(safe-area-inset-bottom)) 14px;
+  }
+  .hud-card{
+    background:linear-gradient(180deg, rgba(18,24,32,0.75), rgba(10,14,19,0.9));
+    backdrop-filter:blur(20px) saturate(1.3);
+    border:1px solid var(--panel-edge);
+    border-radius:22px;
+    padding:16px 16px 14px 16px;
+    box-shadow:0 -8px 30px rgba(0,0,0,0.4);
+  }
+  .stats-row{ display:flex; justify-content:space-around; margin-bottom:14px; }
+  .stat{ text-align:center; flex:1; }
+  .stat .val{
+    font-family:var(--mono); font-weight:700; font-size:22px; letter-spacing:-0.5px;
+    color:var(--paper); font-variant-numeric:tabular-nums;
+  }
+  .stat.primary .val{ color:var(--brass); font-size:26px; }
+  .stat .lbl{ font-size:9px; letter-spacing:2px; color:var(--muted); text-transform:uppercase; margin-top:3px; }
+  .divider-v{ width:1px; background:var(--panel-edge); margin:2px 4px; }
+
+  .replay-progress{
+    height:3px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; margin-bottom:14px; display:none;
+  }
+  .replay-progress.show{ display:block; }
+  .replay-progress-fill{ height:100%; width:0%; background:var(--brass); transition:width 0.1s linear; }
+
+  .controls-row{ display:flex; align-items:center; justify-content:center; gap:14px; }
+  .btn-record{
+    width:64px; height:64px; border-radius:50%; border:3px solid var(--brass);
+    background:rgba(212,160,84,0.12); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition:all 0.2s; flex-shrink:0;
+  }
+  .btn-record:active{ transform:scale(0.94); }
+  .btn-record .inner{ width:26px; height:26px; border-radius:50%; background:var(--brass); transition:all 0.25s; }
+  .btn-record.recording{ border-color:var(--alert); background:rgba(226,87,76,0.14); }
+  .btn-record.recording .inner{ width:22px; height:22px; border-radius:6px; background:var(--alert); }
+
+  .btn-sec{
+    font-family:var(--sans); font-size:12px; font-weight:600; letter-spacing:0.5px;
+    padding:14px 18px; border-radius:16px; border:1px solid var(--panel-edge);
+    background:rgba(255,255,255,0.04); color:var(--paper);
+    cursor:pointer; transition:all 0.2s; white-space:nowrap;
+    display:flex; align-items:center; gap:6px;
+  }
+  .btn-sec:active{ transform:scale(0.96); background:rgba(255,255,255,0.09); }
+  .btn-sec.accent{ color:var(--teal); border-color:rgba(79,209,197,0.3); }
+  .btn-sec.ghost{ color:var(--muted); }
+
+  .hint{ text-align:center; font-size:11px; color:var(--muted); margin-top:12px; letter-spacing:0.3px; }
+
+  .speed-toggle{ display:flex; gap:6px; justify-content:center; margin-top:10px; }
+  .speed-btn{
+    font-family:var(--mono); font-size:10.5px; padding:5px 11px; border-radius:8px;
+    border:1px solid var(--panel-edge); background:transparent; color:var(--muted); cursor:pointer;
+  }
+  .speed-btn.active{ color:var(--brass); border-color:var(--brass); background:rgba(212,160,84,0.1); }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<canvas id="radar"></canvas>
+<div class="letterbox top"></div>
+<div class="letterbox bottom"></div>
+
+<div class="topbar">
+  <div class="wordmark">
+    <div class="title">TRACE</div>
+    <div class="eyebrow">Radar de recorrido</div>
+  </div>
+  <div class="status-pill" id="statusPill">
+    <div class="status-dot"></div>
+    <span id="statusText">Inactivo</span>
+  </div>
+</div>
+
+<div class="coords" id="coordsReadout">— · —</div>
+<div class="error-banner" id="errorBanner"></div>
+
+<div class="hud">
+  <div class="hud-card">
+    <div class="stats-row">
+      <div class="stat primary">
+        <div class="val" id="statDistance">0 m</div>
+        <div class="lbl">Distancia</div>
+      </div>
+      <div class="divider-v"></div>
+      <div class="stat">
+        <div class="val" id="statTime">00:00</div>
+        <div class="lbl">Tiempo</div>
+      </div>
+      <div class="divider-v"></div>
+      <div class="stat">
+        <div class="val" id="statPace">--:--</div>
+        <div class="lbl">Ritmo /km</div>
+      </div>
+    </div>
+
+    <div class="replay-progress" id="replayProgress">
+      <div class="replay-progress-fill" id="replayProgressFill"></div>
+    </div>
+
+    <div class="controls-row" id="controlsRow">
+      <div class="btn-record" id="btnRecord"><div class="inner"></div></div>
+    </div>
+
+    <div class="speed-toggle hidden" id="speedToggle">
+      <button class="speed-btn" data-speed="1">1×</button>
+      <button class="speed-btn active" data-speed="2">2×</button>
+      <button class="speed-btn" data-speed="4">4×</button>
+    </div>
+
+    <div class="hint" id="hintText">Toca para iniciar el rastreo de tu recorrido</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  // ---------------- Canvas setup ----------------
+  var canvas = document.getElementById('radar');
+  var ctx = canvas.getContext('2d');
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+
+  function resizeCanvas(){
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', function(){ setTimeout(resizeCanvas, 300); });
+
+  // ---------------- State ----------------
+  var STATE = 'idle'; // idle | recording | stopped | replaying
+  var watchId = null;
+  var route = [];         // {lat,lng,t}
+  var liveRaw = null;     // {lat,lng} latest raw fix, for smooth marker even pre-filter
+  var startTime = null;
+  var totalDistance = 0;
+  var cumulativeDist = [0];
+  var timerInterval = null;
+  var replaySpeed = 2;
+  var replayInfo = null;  // {startTs, duration, totalT, fixedProj}
+  var fixedProj = null;   // cached projection for stopped/replay view
+
+  var MIN_POINT_DIST = 3;
+  var REPLAY_BASE_MS = 20000;
+
+  // ---------------- DOM refs ----------------
+  var btnRecord = document.getElementById('btnRecord');
+  var controlsRow = document.getElementById('controlsRow');
+  var statDistance = document.getElementById('statDistance');
+  var statTime = document.getElementById('statTime');
+  var statPace = document.getElementById('statPace');
+  var statusPill = document.getElementById('statusPill');
+  var statusText = document.getElementById('statusText');
+  var coordsReadout = document.getElementById('coordsReadout');
+  var errorBanner = document.getElementById('errorBanner');
+  var hintText = document.getElementById('hintText');
+  var speedToggle = document.getElementById('speedToggle');
+  var replayProgress = document.getElementById('replayProgress');
+  var replayProgressFill = document.getElementById('replayProgressFill');
+  var bodyEl = document.body;
+
+  // ---------------- Geo helpers ----------------
+  function haversine(a, b){
+    var R = 6371000;
+    var dLat = (b.lat-a.lat) * Math.PI/180;
+    var dLng = (b.lng-a.lng) * Math.PI/180;
+    var la1 = a.lat * Math.PI/180, la2 = b.lat * Math.PI/180;
+    var h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  // Local flat-earth projection (meters) relative to an origin lat/lng.
+  // Accurate for the short distances involved in a walk/run.
+  function project(lat, lng, originLat, originLng){
+    var mPerDegLat = 110540;
+    var mPerDegLng = 111320 * Math.cos(originLat * Math.PI/180);
+    return {
+      x: (lng - originLng) * mPerDegLng,
+      y: (lat - originLat) * mPerDegLat // positive = north
+    };
+  }
+
+  function fmtDistance(m){
+    if(m < 1000) return Math.round(m) + ' m';
+    return (m/1000).toFixed(2) + ' km';
+  }
+  function fmtTime(ms){
+    var s = Math.floor(ms/1000);
+    var h = Math.floor(s/3600), mm = Math.floor((s%3600)/60), ss = s%60;
+    if(h>0) return pad(h)+':'+pad(mm)+':'+pad(ss);
+    return pad(mm)+':'+pad(ss);
+  }
+  function pad(n){ return n<10 ? '0'+n : ''+n; }
+  function fmtPace(distM, timeMs){
+    if(distM < 30) return '--:--';
+    var km = distM/1000;
+    var minPerKm = (timeMs/60000) / km;
+    if(!isFinite(minPerKm) || minPerKm <= 0) return '--:--';
+    var m = Math.floor(minPerKm), s = Math.round((minPerKm - m)*60);
+    if(s===60){ m++; s=0; }
+    return m+':'+pad(s);
+  }
+  function fmtCoord(lat, lng){
+    var latDir = lat>=0 ? 'N' : 'S', lngDir = lng>=0 ? 'E' : 'W';
+    return Math.abs(lat).toFixed(4)+'° '+latDir+',  '+Math.abs(lng).toFixed(4)+'° '+lngDir;
+  }
+  function showError(msg){ errorBanner.innerHTML = msg; errorBanner.classList.add('show'); }
+  function clearError(){ errorBanner.classList.remove('show'); }
+  function setStatus(mode){
+    statusPill.className = 'status-pill';
+    if(mode==='live'){ statusPill.classList.add('live'); statusText.textContent='En vivo'; }
+    else if(mode==='replay'){ statusPill.classList.add('replay'); statusText.textContent='Reproducción'; }
+    else { statusText.textContent='Inactivo'; }
+  }
+
+  function pickRingStep(maxRadius){
+    var candidates = [2,5,10,20,25,50,100,200,250,500,1000,2000,5000,10000,20000];
+    var target = maxRadius / 4;
+    var best = candidates[0], bestDiff = Infinity;
+    for(var i=0;i<candidates.length;i++){
+      var diff = Math.abs(candidates[i]-target);
+      if(diff < bestDiff){ bestDiff = diff; best = candidates[i]; }
+    }
+    return best;
+  }
+
+  // ---------------- Drawing ----------------
+  var lastFrameTime = 0;
+
+  function drawBackground(w,h){
+    ctx.fillStyle = '#0a0e13';
+    ctx.fillRect(0,0,w,h);
+    // subtle vignette
+    var grad = ctx.createRadialGradient(w/2,h*0.4,10, w/2,h*0.4, Math.max(w,h)*0.8);
+    grad.addColorStop(0, 'rgba(20,28,36,0.4)');
+    grad.addColorStop(1, 'rgba(6,9,12,0.95)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,w,h);
+  }
+
+  function drawGrid(cx, cy, maxCanvasRadius, maxRadiusMeters, pxPerMeter, sweepAngle){
+    var step = pickRingStep(maxRadiusMeters);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(232,228,218,0.10)';
+    ctx.lineWidth = 1;
+    ctx.font = '9px ' + getComputedStyle(document.body).getPropertyValue('--mono') || 'monospace';
+
+    // rings
+    for(var r = step; r <= maxRadiusMeters + step*0.5; r += step){
+      var pr = r * pxPerMeter;
+      if(pr > maxCanvasRadius * 1.05) break;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pr, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(124,136,148,0.85)';
+      var label = r >= 1000 ? (r/1000)+' km' : r+' m';
+      ctx.fillText(label, cx + 4, cy - pr + 11);
+    }
+
+    // radial lines + compass
+    var dirs = [{a:-Math.PI/2,l:'N'},{a:0,l:'E'},{a:Math.PI/2,l:'S'},{a:Math.PI,l:'O'}];
+    ctx.strokeStyle = 'rgba(232,228,218,0.07)';
+    dirs.forEach(function(d){
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(d.a)*maxCanvasRadius, cy + Math.sin(d.a)*maxCanvasRadius);
+      ctx.stroke();
+    });
+    ctx.font = '600 11px ' + 'ui-monospace, monospace';
+    dirs.forEach(function(d){
+      var lx = cx + Math.cos(d.a)*(maxCanvasRadius+14);
+      var ly = cy + Math.sin(d.a)*(maxCanvasRadius+14);
+      ctx.fillStyle = d.l==='N' ? 'rgba(212,160,84,0.9)' : 'rgba(124,136,148,0.7)';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(d.l, lx, ly);
+    });
+    ctx.restore();
+
+    // idle sweep
+    if(sweepAngle !== null){
+      ctx.save();
+      var sweepGrad = ctx.createConicGradient ? ctx.createConicGradient(sweepAngle - Math.PI/2, cx, cy) : null;
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.arc(cx, cy, maxCanvasRadius, sweepAngle - 0.5, sweepAngle);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(79,209,197,0.06)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(cx,cy);
+      ctx.lineTo(cx + Math.cos(sweepAngle)*maxCanvasRadius, cy + Math.sin(sweepAngle)*maxCanvasRadius);
+      ctx.strokeStyle = 'rgba(79,209,197,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawPath(points, cx, cy, pxPerMeter, origin, color, upTo){
+    if(points.length < 2) return;
+    var n = upTo === undefined ? points.length : upTo;
+    if(n < 2) return;
+    ctx.save();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // glow pass
+    ctx.shadowColor = color; ctx.shadowBlur = 12;
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.35; ctx.lineWidth = 9;
+    tracePath(points, n, cx, cy, pxPerMeter, origin);
+    ctx.stroke();
+    // core pass
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.lineWidth = 3.5;
+    tracePath(points, n, cx, cy, pxPerMeter, origin);
+    ctx.stroke();
+    ctx.restore();
+  }
+  function tracePath(points, n, cx, cy, pxPerMeter, origin){
+    ctx.beginPath();
+    for(var i=0;i<n;i++){
+      var p = project(points[i].lat, points[i].lng, origin.lat, origin.lng);
+      var x = cx + p.x*pxPerMeter, y = cy - p.y*pxPerMeter;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+  }
+
+  function drawMarker(lat, lng, cx, cy, pxPerMeter, origin, color, pulseT){
+    var p = project(lat, lng, origin.lat, origin.lng);
+    var x = cx + p.x*pxPerMeter, y = cy - p.y*pxPerMeter;
+    ctx.save();
+    var pulse = 1 + Math.sin(pulseT/450) * 0.35;
+    ctx.beginPath();
+    ctx.arc(x, y, 16*Math.max(pulse,0.4), 0, Math.PI*2);
+    ctx.fillStyle = color.replace('COLOR_ALPHA', (0.18).toString());
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI*2);
+    ctx.fillStyle = '#0a0e13';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, 5.5, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color; ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.restore();
+    return {x:x,y:y};
+  }
+
+  function computeBoundsOrigin(points){
+    if(points.length === 0) return {lat:0,lng:0};
+    var latSum=0,lngSum=0;
+    points.forEach(function(p){ latSum+=p.lat; lngSum+=p.lng; });
+    return { lat: latSum/points.length, lng: lngSum/points.length };
+  }
+  function computeMaxRadius(points, origin){
+    var max = 15; // minimum meters shown so it never over-zooms when stationary
+    points.forEach(function(p){
+      var pr = project(p.lat,p.lng,origin.lat,origin.lng);
+      var d = Math.sqrt(pr.x*pr.x + pr.y*pr.y);
+      if(d > max) max = d;
+    });
+    return max * 1.25;
+  }
+
+  function render(now){
+    var w = window.innerWidth, h = window.innerHeight;
+    drawBackground(w,h);
+
+    var cx = w/2, cy = h*0.42;
+    var maxCanvasRadius = Math.min(w,h) * 0.36;
+
+    if(STATE === 'idle' && route.length === 0){
+      var sweep = (now/1800) % (Math.PI*2);
+      drawGrid(cx, cy, maxCanvasRadius, 50, maxCanvasRadius/50, sweep);
+      // center placeholder ring
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx,cy,4,0,Math.PI*2);
+      ctx.fillStyle = 'rgba(212,160,84,0.6)';
+      ctx.fill();
+      ctx.restore();
+    }
+    else if(STATE === 'recording'){
+      var pts = liveRaw ? route.concat([{lat:liveRaw.lat, lng:liveRaw.lng}]) : route;
+      var origin = computeBoundsOrigin(pts.length ? pts : [liveRaw || {lat:0,lng:0}]);
+      var maxR = computeMaxRadius(pts, origin);
+      var pxPerM = maxCanvasRadius / maxR;
+      drawGrid(cx, cy, maxCanvasRadius, maxR, pxPerM, null);
+      drawPath(route, cx, cy, pxPerM, origin, '#4FD1C5');
+      var pos = liveRaw || (route.length ? route[route.length-1] : null);
+      if(pos) drawMarker(pos.lat, pos.lng, cx, cy, pxPerM, origin, '#4FD1C5', now);
+    }
+    else if(STATE === 'stopped' && route.length >= 2){
+      if(!fixedProj){
+        var o = computeBoundsOrigin(route);
+        var mr = computeMaxRadius(route, o);
+        fixedProj = { origin:o, maxR:mr };
+      }
+      var pxPerM2 = maxCanvasRadius / fixedProj.maxR;
+      drawGrid(cx, cy, maxCanvasRadius, fixedProj.maxR, pxPerM2, null);
+      drawPath(route, cx, cy, pxPerM2, fixedProj.origin, '#4FD1C5');
+      var last = route[route.length-1];
+      drawMarker(last.lat, last.lng, cx, cy, pxPerM2, fixedProj.origin, '#4FD1C5', now);
+    }
+    else if(STATE === 'replaying' && replayInfo){
+      var fp = replayInfo.fixedProj;
+      var pxPerM3 = maxCanvasRadius / fp.maxR;
+      var elapsed = now - replayInfo.startTs;
+      var progress = Math.min(elapsed / replayInfo.duration, 1);
+      var targetT = progress * replayInfo.totalT;
+
+      var idx = 0;
+      while(idx < route.length-1 && route[idx+1].t < targetT) idx++;
+      var p0 = route[idx], p1 = route[Math.min(idx+1, route.length-1)];
+      var segT = p1.t - p0.t;
+      var localP = segT > 0 ? (targetT - p0.t) / segT : 0;
+      var lat = p0.lat + (p1.lat - p0.lat) * localP;
+      var lng = p0.lng + (p1.lng - p0.lng) * localP;
+      var dist = cumulativeDist[idx] + (cumulativeDist[Math.min(idx+1,cumulativeDist.length-1)] - cumulativeDist[idx]) * localP;
+
+      drawGrid(cx, cy, maxCanvasRadius, fp.maxR, pxPerM3, null);
+      drawPath(route, cx, cy, pxPerM3, fp.origin, 'rgba(79,209,197,0.4)');
+      var upToIdx = idx+2;
+      ctx.save();
+      drawPath(route.slice(0, Math.min(upToIdx, route.length)).concat([{lat:lat,lng:lng}]), cx, cy, pxPerM3, fp.origin, '#D4A054');
+      ctx.restore();
+      drawMarker(lat, lng, cx, cy, pxPerM3, fp.origin, '#D4A054', now);
+
+      statDistance.textContent = fmtDistance(dist);
+      statTime.textContent = fmtTime(targetT);
+      statPace.textContent = fmtPace(dist, targetT);
+      replayProgressFill.style.width = (progress*100)+'%';
+
+      if(progress >= 1){ finishReplay(); }
+    }
+    else {
+      drawGrid(cx, cy, maxCanvasRadius, 50, maxCanvasRadius/50, null);
+    }
+
+    requestAnimationFrame(render);
+  }
+  requestAnimationFrame(render);
+
+  // ---------------- Recording logic ----------------
+  function startRecording(){
+    if(!navigator.geolocation){
+      showError('<b>Sin soporte de geolocalización.</b> Tu navegador no permite acceder al GPS.');
+      return;
+    }
+    clearError();
+    route = []; cumulativeDist = [0]; totalDistance = 0; liveRaw = null; fixedProj = null;
+    startTime = Date.now();
+
+    STATE = 'recording';
+    btnRecord.classList.add('recording');
+    setStatus('live');
+    hintText.textContent = 'Rastreando tu recorrido…';
+
+    watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
+      enableHighAccuracy:true, maximumAge:1000, timeout:15000
+    });
+    timerInterval = setInterval(updateTimeDisplay, 1000);
+  }
+
+  function onPosition(pos){
+    var lat = pos.coords.latitude, lng = pos.coords.longitude;
+    liveRaw = { lat:lat, lng:lng };
+    coordsReadout.textContent = fmtCoord(lat, lng);
+    coordsReadout.style.opacity = '1';
+
+    var point = { lat:lat, lng:lng, t: Date.now() - startTime };
+    if(route.length === 0){
+      route.push(point); cumulativeDist = [0];
+    } else {
+      var last = route[route.length-1];
+      var d = haversine(last, point);
+      if(d >= MIN_POINT_DIST){
+        totalDistance += d;
+        route.push(point);
+        cumulativeDist.push(totalDistance);
+      }
+    }
+    statDistance.textContent = fmtDistance(totalDistance);
+    statPace.textContent = fmtPace(totalDistance, Date.now()-startTime);
+  }
+
+  function onGeoError(err){
+    var msg = 'No se pudo acceder a tu ubicación.';
+    if(err.code === 1) msg = '<b>Permiso denegado.</b> Activa la ubicación para este sitio en los ajustes de tu navegador para poder rastrear tu recorrido.';
+    else if(err.code === 2) msg = '<b>Ubicación no disponible.</b> Verifica tu señal GPS o conexión.';
+    else if(err.code === 3) msg = '<b>Tiempo de espera agotado</b> buscando tu ubicación. Intenta de nuevo.';
+    showError(msg);
+  }
+
+  function updateTimeDisplay(){
+    if(STATE !== 'recording') return;
+    statTime.textContent = fmtTime(Date.now() - startTime);
+    statPace.textContent = fmtPace(totalDistance, Date.now()-startTime);
+  }
+
+  function stopRecording(){
+    if(watchId !== null){ navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if(timerInterval){ clearInterval(timerInterval); timerInterval = null; }
+    STATE = 'stopped';
+    btnRecord.classList.remove('recording');
+    setStatus('idle');
+    coordsReadout.style.opacity = '0.5';
+
+    if(route.length < 2){
+      hintText.textContent = 'Recorrido muy corto para reproducir. Inicia uno nuevo cuando quieras.';
+      renderIdleControls();
+      return;
+    }
+    hintText.textContent = 'Recorrido guardado. Puedes reproducirlo o iniciar uno nuevo.';
+    renderStoppedControls();
+  }
+
+  // ---------------- Controls ----------------
+  function renderIdleControls(){
+    controlsRow.innerHTML = '';
+    controlsRow.appendChild(btnRecord);
+    speedToggle.classList.add('hidden');
+    replayProgress.classList.remove('show');
+  }
+  function renderStoppedControls(){
+    controlsRow.innerHTML = '';
+    var playBtn = document.createElement('button');
+    playBtn.className = 'btn-sec accent';
+    playBtn.innerHTML = '▶&nbsp; Reproducir recorrido';
+    playBtn.onclick = startReplay;
+    var newBtn = document.createElement('button');
+    newBtn.className = 'btn-sec ghost';
+    newBtn.innerHTML = '↺&nbsp; Nuevo';
+    newBtn.onclick = resetAll;
+    controlsRow.appendChild(playBtn);
+    controlsRow.appendChild(newBtn);
+    speedToggle.classList.remove('hidden');
+  }
+  function renderReplayingControls(){
+    controlsRow.innerHTML = '';
+    var stopBtn = document.createElement('button');
+    stopBtn.className = 'btn-sec';
+    stopBtn.style.color = '#E2574C';
+    stopBtn.style.borderColor = 'rgba(226,87,76,0.35)';
+    stopBtn.innerHTML = '■&nbsp; Detener reproducción';
+    stopBtn.onclick = stopReplay;
+    controlsRow.appendChild(stopBtn);
+  }
+
+  function resetAll(){
+    route = []; cumulativeDist = [0]; totalDistance = 0; liveRaw = null; fixedProj = null;
+    statDistance.textContent = '0 m'; statTime.textContent = '00:00'; statPace.textContent = '--:--';
+    coordsReadout.style.opacity = '0.5';
+    STATE = 'idle'; setStatus('idle');
+    hintText.textContent = 'Toca para iniciar el rastreo de tu recorrido';
+    renderIdleControls();
+  }
+
+  // ---------------- Replay ----------------
+  function startReplay(){
+    if(route.length < 2) return;
+    var o = computeBoundsOrigin(route);
+    var mr = computeMaxRadius(route, o);
+    replayInfo = {
+      startTs: performance.now(),
+      duration: REPLAY_BASE_MS / replaySpeed,
+      totalT: route[route.length-1].t || 1,
+      fixedProj: { origin:o, maxR:mr }
+    };
+    STATE = 'replaying';
+    setStatus('replay');
+    bodyEl.classList.add('replay-active');
+    renderReplayingControls();
+    replayProgress.classList.add('show');
+  }
+  function finishReplay(){
+    STATE = 'stopped';
+    setStatus('idle');
+    bodyEl.classList.remove('replay-active');
+    hintText.textContent = 'Reproducción finalizada. Puedes verla de nuevo o iniciar un recorrido nuevo.';
+    fixedProj = replayInfo ? replayInfo.fixedProj : fixedProj;
+    statDistance.textContent = fmtDistance(totalDistance);
+    statTime.textContent = fmtTime(route[route.length-1].t);
+    statPace.textContent = fmtPace(totalDistance, route[route.length-1].t);
+    replayInfo = null;
+    renderStoppedControls();
+  }
+  function stopReplay(){
+    STATE = 'stopped';
+    setStatus('idle');
+    bodyEl.classList.remove('replay-active');
+    replayProgress.classList.remove('show');
+    fixedProj = replayInfo ? replayInfo.fixedProj : fixedProj;
+    statDistance.textContent = fmtDistance(totalDistance);
+    statTime.textContent = fmtTime(route[route.length-1].t);
+    statPace.textContent = fmtPace(totalDistance, route[route.length-1].t);
+    hintText.textContent = 'Reproducción detenida. Puedes verla de nuevo o iniciar un recorrido nuevo.';
+    replayInfo = null;
+    renderStoppedControls();
+  }
+
+  // ---------------- Wiring ----------------
+  btnRecord.addEventListener('click', function(){
+    if(STATE === 'idle' || STATE === 'stopped'){ startRecording(); }
+    else if(STATE === 'recording'){ stopRecording(); }
+  });
+  speedToggle.addEventListener('click', function(e){
+    var btn = e.target.closest('.speed-btn');
+    if(!btn) return;
+    replaySpeed = parseFloat(btn.dataset.speed);
+    Array.prototype.forEach.call(speedToggle.querySelectorAll('.speed-btn'), function(b){
+      b.classList.toggle('active', b===btn);
+    });
+  });
+
+})();
+</script>
+</body>
+</html>
