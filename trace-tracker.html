@@ -204,6 +204,10 @@
     iconSize:[18,18], iconAnchor:[9,9]
   });
   var liveMarker = null;
+  var accuracyCircle = null;
+
+  var MAX_ACCEPT_ACCURACY = 30; // meters — fixes worse than this are ignored for the route
+  var MAX_PLAUSIBLE_SPEED = 6;  // m/s (~21.6 km/h) — filters GPS teleport spikes while walking/running
 
   // ---------------- State ----------------
   var STATE = 'idle';
@@ -298,29 +302,52 @@
 
   function onPosition(pos){
     var lat = pos.coords.latitude, lng = pos.coords.longitude;
-    coordsReadout.textContent = fmtCoord(lat, lng);
+    var accuracy = pos.coords.accuracy || 999;
+    coordsReadout.textContent = fmtCoord(lat, lng) + '  ±' + Math.round(accuracy) + 'm';
     coordsReadout.style.opacity = '1';
 
     if(!liveMarker){ liveMarker = L.marker([lat,lng], { icon: liveMarkerIcon }).addTo(map); }
     else { liveMarker.setLatLng([lat,lng]); }
 
-    var point = { lat:lat, lng:lng, t: Date.now() - startTime };
+    if(!accuracyCircle){
+      accuracyCircle = L.circle([lat,lng], { radius:accuracy, color:'#4FD1C5', weight:1, opacity:0.25, fillColor:'#4FD1C5', fillOpacity:0.06 }).addTo(map);
+    } else {
+      accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(accuracy);
+    }
+
+    // Ignore unreliable fixes entirely for the recorded route
+    if(accuracy > MAX_ACCEPT_ACCURACY){
+      hintText.textContent = 'Buscando señal GPS más precisa (±' + Math.round(accuracy) + 'm)…';
+      return;
+    }
+
+    var now = Date.now() - startTime;
+    var point = { lat:lat, lng:lng, t: now };
     if(route.length === 0){
       route.push(point); cumulativeDist = [0];
+      routeLine.addLatLng([lat,lng]); glowLine.addLatLng([lat,lng]);
     } else {
       var last = route[route.length-1];
       var d = haversine(last, point);
+      var dt = Math.max((now - last.t) / 1000, 0.001);
+      var impliedSpeed = d / dt;
+
+      // Reject GPS "teleport" spikes: a jump too large for the elapsed time to be real movement
+      if(impliedSpeed > MAX_PLAUSIBLE_SPEED && d > accuracy){
+        return;
+      }
       if(d >= MIN_POINT_DIST){
         totalDistance += d;
         route.push(point);
         cumulativeDist.push(totalDistance);
         routeLine.addLatLng([lat,lng]);
         glowLine.addLatLng([lat,lng]);
+        hintText.textContent = 'Rastreando tu recorrido…';
       }
     }
     map.panTo([lat,lng], { animate:true, duration:0.6 });
     statDistance.textContent = fmtDistance(totalDistance);
-    statPace.textContent = fmtPace(totalDistance, Date.now()-startTime);
+    statPace.textContent = fmtPace(totalDistance, now);
   }
 
   function onGeoError(err){
@@ -391,6 +418,7 @@
     route = []; cumulativeDist = [0]; totalDistance = 0;
     routeLine.setLatLngs([]); glowLine.setLatLngs([]);
     if(liveMarker){ map.removeLayer(liveMarker); liveMarker = null; }
+    if(accuracyCircle){ map.removeLayer(accuracyCircle); accuracyCircle = null; }
     statDistance.textContent = '0 m'; statTime.textContent = '00:00'; statPace.textContent = '--:--';
     coordsReadout.style.opacity = '0.5';
     STATE = 'idle'; setStatus('idle');
@@ -487,4 +515,5 @@
 </script>
 </body>
 </html>
+
 
