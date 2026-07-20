@@ -206,8 +206,26 @@
   var liveMarker = null;
   var accuracyCircle = null;
 
-  var MAX_ACCEPT_ACCURACY = 30; // meters — fixes worse than this are ignored for the route
-  var MAX_PLAUSIBLE_SPEED = 6;  // m/s (~21.6 km/h) — filters GPS teleport spikes while walking/running
+  var MAX_ACCEPT_ACCURACY = 50; // meters — only truly unusable fixes get discarded outright
+  var Q_METERS_PER_SEC = 2.2;   // expected walking/running speed variability, used by the smoothing filter
+
+  // Kalman-style smoothing state (operates in local meters relative to a origin fix)
+  var kOriginLat = null, kOriginLng = null, kX = 0, kY = 0, kVariance = 0, kLastT = null;
+
+  function metersPerDeg(lat){
+    return { lat: 110540, lng: 111320 * Math.cos(lat * Math.PI/180) };
+  }
+  function toLocalMeters(lat, lng){
+    var m = metersPerDeg(kOriginLat);
+    return { x: (lng - kOriginLng) * m.lng, y: (lat - kOriginLat) * m.lat };
+  }
+  function fromLocalMeters(x, y){
+    var m = metersPerDeg(kOriginLat);
+    return { lat: kOriginLat + y / m.lat, lng: kOriginLng + x / m.lng };
+  }
+  function resetSmoothing(){
+    kOriginLat = null; kOriginLng = null; kX = 0; kY = 0; kVariance = 0; kLastT = null;
+  }
 
   // ---------------- State ----------------
   var STATE = 'idle';
@@ -283,6 +301,7 @@
     }
     clearError();
     route = []; cumulativeDist = [0]; totalDistance = 0; startTime = Date.now();
+    resetSmoothing();
     routeLine.setLatLngs([]); glowLine.setLatLngs([]);
 
     STATE = 'recording';
@@ -301,8 +320,33 @@
   }
 
   function onPosition(pos){
-    var lat = pos.coords.latitude, lng = pos.coords.longitude;
+    var rawLat = pos.coords.latitude, rawLng = pos.coords.longitude;
     var accuracy = pos.coords.accuracy || 999;
+
+    if(accuracy > MAX_ACCEPT_ACCURACY){
+      hintText.textContent = 'Señal GPS muy débil (±' + Math.round(accuracy) + 'm), esperando mejor señal…';
+      return;
+    }
+
+    var now = Date.now() - startTime;
+
+    // Feed the fix through a lightweight Kalman-style filter (meters-space) to smooth out jitter/spikes
+    if(kOriginLat === null){
+      kOriginLat = rawLat; kOriginLng = rawLng; kX = 0; kY = 0;
+      kVariance = accuracy * accuracy; kLastT = now;
+    } else {
+      var dt = Math.max((now - kLastT) / 1000, 0.05);
+      kLastT = now;
+      kVariance += dt * Q_METERS_PER_SEC * Q_METERS_PER_SEC;
+      var raw = toLocalMeters(rawLat, rawLng);
+      var K = kVariance / (kVariance + accuracy * accuracy);
+      kX += K * (raw.x - kX);
+      kY += K * (raw.y - kY);
+      kVariance = (1 - K) * kVariance;
+    }
+    var smoothed = fromLocalMeters(kX, kY);
+    var lat = smoothed.lat, lng = smoothed.lng;
+
     coordsReadout.textContent = fmtCoord(lat, lng) + '  ±' + Math.round(accuracy) + 'm';
     coordsReadout.style.opacity = '1';
 
@@ -315,13 +359,6 @@
       accuracyCircle.setLatLng([lat,lng]); accuracyCircle.setRadius(accuracy);
     }
 
-    // Ignore unreliable fixes entirely for the recorded route
-    if(accuracy > MAX_ACCEPT_ACCURACY){
-      hintText.textContent = 'Buscando señal GPS más precisa (±' + Math.round(accuracy) + 'm)…';
-      return;
-    }
-
-    var now = Date.now() - startTime;
     var point = { lat:lat, lng:lng, t: now };
     if(route.length === 0){
       route.push(point); cumulativeDist = [0];
@@ -329,13 +366,6 @@
     } else {
       var last = route[route.length-1];
       var d = haversine(last, point);
-      var dt = Math.max((now - last.t) / 1000, 0.001);
-      var impliedSpeed = d / dt;
-
-      // Reject GPS "teleport" spikes: a jump too large for the elapsed time to be real movement
-      if(impliedSpeed > MAX_PLAUSIBLE_SPEED && d > accuracy){
-        return;
-      }
       if(d >= MIN_POINT_DIST){
         totalDistance += d;
         route.push(point);
@@ -515,6 +545,7 @@
 </script>
 </body>
 </html>
+
 
 
 
