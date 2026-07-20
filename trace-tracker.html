@@ -206,8 +206,8 @@
   var liveMarker = null;
   var accuracyCircle = null;
 
-  var MAX_ACCEPT_ACCURACY = 50; // meters — only truly unusable fixes get discarded outright
-  var Q_METERS_PER_SEC = 2.2;   // expected walking/running speed variability, used by the smoothing filter
+  var MAX_ACCEPT_ACCURACY = 40; // meters — fixes worse than this only update the live marker, not the recorded route
+  var Q_METERS_PER_SEC = 1.1;   // lower = filter trusts recent history more, resists chasing noisy jumps
 
   // Kalman-style smoothing state (operates in local meters relative to a origin fix)
   var kOriginLat = null, kOriginLng = null, kX = 0, kY = 0, kVariance = 0, kLastT = null;
@@ -238,7 +238,7 @@
   var replayAnimId = null;
   var cumulativeDist = [0];
 
-  var MIN_POINT_DIST = 3;
+  var MIN_POINT_DIST = 3; // base floor; effective threshold below scales up with reported accuracy
   var REPLAY_BASE_MS = 20000;
 
   var btnRecord = document.getElementById('btnRecord');
@@ -366,13 +366,17 @@
     } else {
       var last = route[route.length-1];
       var d = haversine(last, point);
-      if(d >= MIN_POINT_DIST){
+      var noiseFloor = Math.max(MIN_POINT_DIST, accuracy * 0.5);
+      // Only trust movement large enough to clearly exceed current GPS noise, and only when accuracy is decent
+      if(accuracy <= 20 && d >= noiseFloor){
         totalDistance += d;
         route.push(point);
         cumulativeDist.push(totalDistance);
         routeLine.addLatLng([lat,lng]);
         glowLine.addLatLng([lat,lng]);
         hintText.textContent = 'Rastreando tu recorrido…';
+      } else if(accuracy > 20){
+        hintText.textContent = 'Señal GPS imprecisa (±' + Math.round(accuracy) + 'm) — busca cielo despejado para mejor precisión.';
       }
     }
     map.panTo([lat,lng], { animate:true, duration:0.6 });
@@ -545,6 +549,7 @@
 </script>
 </body>
 </html>
+
 
 
 
