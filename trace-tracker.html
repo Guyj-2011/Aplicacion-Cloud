@@ -166,7 +166,7 @@
   var map = L.map('map', { zoomControl:false, attributionControl:true }).setView([20, 0], 2.3);
 
   var satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri', maxZoom: 20, maxNativeZoom: 16
+    attribution: 'Tiles © Esri', maxZoom: 20, maxNativeZoom: 19, detectRetina: true
   });
   var fallbackLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19, subdomains: 'abc'
@@ -199,11 +199,16 @@
     className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#4FD1C5;border:3px solid #0a0e13;box-shadow:0 0 12px #4FD1C5;"></div>',
     iconSize:[16,16], iconAnchor:[8,8]
   });
+  var idleMarkerIcon = L.divIcon({
+    className:'', html:'<div style="width:14px;height:14px;border-radius:50%;background:rgba(79,209,197,0.25);border:2px solid #4FD1C5;box-shadow:0 0 8px rgba(79,209,197,0.5);"></div>',
+    iconSize:[14,14], iconAnchor:[7,7]
+  });
   var replayMarkerIcon = L.divIcon({
     className:'', html:'<div style="width:18px;height:18px;border-radius:50%;background:#D4A054;border:3px solid #0a0e13;box-shadow:0 0 14px #D4A054;"></div>',
     iconSize:[18,18], iconAnchor:[9,9]
   });
   var liveMarker = null;
+  var idleMarker = null;
   var accuracyCircle = null;
 
   var MAX_ACCEPT_ACCURACY = 40; // meters — fixes worse than this only update the live marker, not the recorded route
@@ -303,6 +308,7 @@
     route = []; cumulativeDist = [0]; totalDistance = 0; startTime = Date.now();
     resetSmoothing();
     routeLine.setLatLngs([]); glowLine.setLatLngs([]);
+    if(idleMarker){ map.removeLayer(idleMarker); idleMarker = null; }
 
     STATE = 'recording';
     btnRecord.classList.add('recording');
@@ -310,7 +316,7 @@
     hintText.textContent = 'Rastreando tu recorrido…';
 
     navigator.geolocation.getCurrentPosition(function(pos){
-      map.setView([pos.coords.latitude, pos.coords.longitude], 16, { animate:true });
+      map.setView([pos.coords.latitude, pos.coords.longitude], 17, { animate:true });
     }, function(){}, { enableHighAccuracy:true, timeout:8000 });
 
     watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
@@ -412,7 +418,7 @@
       return;
     }
     var bounds = routeLine.getBounds();
-    if(bounds.isValid()) map.fitBounds(bounds, { padding:[60,60], maxZoom:16 });
+    if(bounds.isValid()) map.fitBounds(bounds, { padding:[60,60], maxZoom:17 });
     hintText.textContent = 'Recorrido guardado. Puedes reproducirlo o iniciar uno nuevo.';
     renderStoppedControls();
   }
@@ -470,7 +476,7 @@
     routeLine.setLatLngs([]); glowLine.setLatLngs([]);
     var replayMarker = L.marker([route[0].lat, route[0].lng], { icon: replayMarkerIcon }).addTo(map);
     var bounds = L.latLngBounds(route.map(function(p){ return [p.lat,p.lng]; }));
-    map.fitBounds(bounds, { padding:[80,80], maxZoom:16 });
+    map.fitBounds(bounds, { padding:[80,80], maxZoom:17 });
     var totalT = route[route.length-1].t || 1;
     var duration = REPLAY_BASE_MS / replaySpeed;
     var animStart = performance.now();
@@ -536,6 +542,22 @@
     if(STATE === 'idle' || STATE === 'stopped'){ startRecording(); }
     else if(STATE === 'recording'){ stopRecording(); }
   });
+
+  // Show current location right away, before the user taps to start recording
+  function showInitialLocation(){
+    if(!navigator.geolocation || STATE !== 'idle') return;
+    navigator.geolocation.getCurrentPosition(function(pos){
+      if(STATE !== 'idle') return; // don't override if recording already began
+      var lat = pos.coords.latitude, lng = pos.coords.longitude;
+      map.setView([lat,lng], 16, { animate:true });
+      if(!idleMarker){ idleMarker = L.marker([lat,lng], { icon: idleMarkerIcon }).addTo(map); }
+      else { idleMarker.setLatLng([lat,lng]); }
+      coordsReadout.textContent = fmtCoord(lat, lng);
+      coordsReadout.style.opacity = '0.7';
+    }, function(){ /* silently ignore — user will still see the world view and can tap to start */ },
+    { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
+  }
+  showInitialLocation();
   speedToggle.addEventListener('click', function(e){
     var btn = e.target.closest('.speed-btn');
     if(!btn) return;
@@ -549,6 +571,7 @@
 </script>
 </body>
 </html>
+
 
 
 
